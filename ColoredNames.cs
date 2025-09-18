@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Text;
 using Newtonsoft.Json;
 using Oxide.Core;
+using Oxide.Core.Configuration;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
 using ConVar;
