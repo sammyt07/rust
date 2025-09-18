@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Text;
 using Newtonsoft.Json;
 using Oxide.Core;
-using Oxide.Core.Configuration;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
 using ConVar;
@@ -478,13 +477,6 @@ namespace Oxide.Plugins
             return gradientName.ToString();
         }
 
-        /// <summary>
-        /// Gets and adds gradient colors to provided results list
-        /// </summary>
-        /// <param name="start"></param>
-        /// <param name="end"></param>
-        /// <param name="steps"></param>
-        /// <param name="results"></param>
         private void GetAndAddGradients(Color start, Color end, int steps, List<Color> results)
         {
             if (steps <= 1) { results.Add(end); return; }
@@ -648,11 +640,6 @@ namespace Oxide.Plugins
                 Message = message;
             }
 
-            /// <summary>
-            /// Gets colored chat dictionary
-            /// <remarks>Note: this is a shared dictionary instance over all ColoredChatMessage's, do not store random stuff in here!</remarks>
-            /// </summary>
-            /// <returns></returns>
             public Dictionary<string, object> GetDictionary()
             {
                 _coloredChatDictionary[nameof(Player)] = Player;
