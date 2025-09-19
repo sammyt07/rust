@@ -675,7 +675,7 @@ namespace Oxide.Plugins
             }
             public string GetChatOutput()
             {
-                return string.Format(ChatFormat, $"</color={Color}>{Name}</color>", Message);
+                return string.Format(ChatFormat, $"<color={Color}>{Name}</color>", Message);
             }
         }
         #endregion
