@@ -23,7 +23,7 @@ namespace Oxide.Plugins
     {
         #region Fields
         private readonly StringBuilder _sharedStringBuilder = new StringBuilder();
-        private const string ColorRegex = "^#(?:[0-9a-fA-F]{3}){1,2}$";
+        private const string ColorRegex = "^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$";
         private const string ChatFormat = "{0}: {1}";
         private readonly Random _random = new Random();
         private string GetRndColor() => $"#{_random.Next(0x1000000):X6}";
@@ -216,6 +216,79 @@ namespace Oxide.Plugins
         #endregion
 
         #region Helpers
+        private static readonly Dictionary<string, string> NamedHex = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // Core web color names
+            ["black"] = "#000000",
+            ["white"] = "#FFFFFF",
+            ["red"]   = "#FF0000",
+            ["green"] = "#008000",
+            ["blue"]  = "#0000FF",
+            ["yellow"]= "#FFFF00",
+            ["magenta"] = "#FF00FF",
+            ["fuchsia"] = "#FF00FF",
+            ["cyan"]  = "#00FFFF",
+            ["aqua"]  = "#00FFFF",
+            ["orange"]= "#FFA500",
+            ["purple"]= "#800080",
+            ["gray"]  = "#808080",
+            ["grey"]  = "#808080",
+            ["silver"]= "#C0C0C0",
+            ["maroon"]= "#800000",
+            ["olive"] = "#808000",
+            ["teal"]  = "#008080",
+            ["navy"]  = "#000080",
+            // Add any others you want to support
+        };
+
+        private static bool TryNormalizeHex(string input, out string hex)
+        {
+            hex = null;
+            if (string.IsNullOrWhiteSpace(input)) return false;
+
+            input = input.Trim();
+            if (!input.StartsWith("#")) return false;
+            if (!Regex.IsMatch(input, ColorRegex)) return false;
+
+            // Expand #RGB/#RGBA to #RRGGBB/#RRGGBBAA
+            if (input.Length == 4 || input.Length == 5)
+            {
+                var sb = new StringBuilder("#");
+                for (int i = 1; i < input.Length; i++)
+                {
+                    char c = input[i];
+                    sb.Append(c).Append(c);
+                }
+                input = sb.ToString();
+            }
+
+            // Canonicalize to upper
+            hex = input.ToUpperInvariant();
+            return true;
+        }
+
+        private static bool TryResolveColorToHex(string input, out string hex)
+        {
+            hex = null;
+            if (string.IsNullOrWhiteSpace(input)) return false;
+
+            input = input.Trim();
+
+            // 1) Already hex?
+            if (TryNormalizeHex(input, out hex))
+                return true;
+
+            // 2) Named color?
+            var lower = input.ToLowerInvariant();
+            if (NamedHex.TryGetValue(lower, out var mapped))
+            {
+                hex = mapped.ToUpperInvariant();
+                return true;
+            }
+
+            return false;
+        }
+
         private void ClearUpData()
         {
             if (_configuration.InactivityRemovalTime == 0) return;
@@ -291,8 +364,28 @@ namespace Oxide.Plugins
             else
             {
                 if (!isMessage && !HasNamePerm(player)) return;
-                colLower = args[0].ToLowerInvariant();
-                ProcessColor(player, player, colLower, args.Skip(1).ToArray(), isMessage);
+                var raw = args[0]; // keep original
+                if (!raw.Equals("gradient", StringComparison.OrdinalIgnoreCase) &&
+                    !raw.Equals("random", StringComparison.OrdinalIgnoreCase) &&
+                    !raw.Equals("rainbow", StringComparison.OrdinalIgnoreCase) &&
+                    !raw.Equals("reset", StringComparison.OrdinalIgnoreCase) &&
+                    !raw.Equals("clear", StringComparison.OrdinalIgnoreCase) &&
+                    !raw.Equals("remove", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!TryResolveColorToHex(raw, out var resolvedHex))
+                    {
+                        player.Reply(GetMessage("IncorrectUsage", player, _configuration.NameColorCommands, _configuration.NameColorsCommandH));
+                        return;
+                    }
+                    // store hex only
+                    ProcessColor(player, player, resolvedHex.ToLowerInvariant(), Array.Empty<string>(), isMessage);
+                }
+                else
+                {
+                    // keep existing handling for special keywords
+                    ProcessColor(player, player, raw.ToLowerInvariant(), args.Skip(1).ToArray(), isMessage);
+                }
+
             }
         }
 
@@ -305,61 +398,55 @@ namespace Oxide.Plugins
             if (!isGroup && !allColorData.ContainsKey(target.Id)) allColorData.Add(target.Id, new PlayerData());
             else if (isGroup && !allColorData.ContainsKey(groupName)) allColorData.Add(groupName, new PlayerData(true));
 
-        if (colLower == "gradient")
-        {
-            if ((!isMessage && !CanNameGradient(player)))
+            if (colLower == "gradient")
             {
-                player.Reply(GetMessage("NoPermissionGradient", player, isMessage ? "message" : "name"));
-                return;
-            }
+                if ((!isMessage && !CanNameGradient(player)))
+                {
+                    player.Reply(GetMessage("NoPermissionGradient", player, isMessage ? "message" : "name"));
+                    return;
+                }
 
-            // colors == args after the word "gradient"
-            if (colors.Length < 2)
-            {
-                // Tell them how to use it (uses your localization)
-                player.Reply(GetMessage("IncorrectGradientUsage", player, _configuration.NameColorCommands));
-                // Or: player.Reply(GetMessage("IncorrectGradientUsageArgs", player));
-                return;
-            }
+                if (colors.Length < 2)
+                {
+                    player.Reply(GetMessage("IncorrectGradientUsage", player, _configuration.NameColorCommands));
+                    return;
+                }
 
-            // Validate hex inputs
-            foreach (var c in colors)
-            {
-                if (!IsValidColor(c))
+                // Normalize every arg to hex
+                var normalized = new List<string>(colors.Length);
+                foreach (var c in colors)
+                {
+                    if (!TryResolveColorToHex(c, out var hx))
+                    {
+                        player.Reply(GetMessage("IncorrectGradientUsageArgs", player));
+                        return;
+                    }
+                    normalized.Add(hx);
+                }
+
+                string gradientName = ProcessGradient(isMessage ? "Example Message" : target.Name, normalized.ToArray(), isMessage, player);
+                if (string.IsNullOrEmpty(gradientName))
                 {
                     player.Reply(GetMessage("IncorrectGradientUsageArgs", player));
                     return;
                 }
-            }
 
-            string gradientName = ProcessGradient(isMessage ? "Example Message" : target.Name, colors, isMessage, player);
-            if (string.IsNullOrEmpty(gradientName))
-            {
-                player.Reply(GetMessage("IncorrectGradientUsageArgs", player));
+                if (!isMessage)
+                {
+                    allColorData[key].NameColor = string.Empty;
+                    allColorData[key].NameGradientArgs = normalized.Select(s => s.ToLowerInvariant()).ToArray();
+                    if (!isGroup)
+                    {
+                        if (!cachedData.ContainsKey(key)) cachedData.Add(key, new CachePlayerData(gradientName, GetPrimaryUserGroup(player.Id)));
+                        else cachedData[key].NameColorGradient = gradientName;
+                    }
+                }
+
+                if (isGroup) ClearCache();
+                if (target.IsConnected)
+                    target.Reply(GetMessage("GradientChanged", target, GetCorrectLang(isGroup, isMessage, key), gradientName));
                 return;
             }
-
-            if (!isMessage)
-            {
-                allColorData[key].NameColor = string.Empty;
-                allColorData[key].NameGradientArgs = colors;
-
-                if (!isGroup)
-                {
-                    if (!cachedData.ContainsKey(key))
-                        cachedData.Add(key, new CachePlayerData(gradientName, GetPrimaryUserGroup(player.Id)));
-                    else
-                        cachedData[key].NameColorGradient = gradientName;
-                }
-            }
-
-            if (isGroup) ClearCache();
-
-            if (target.IsConnected)
-                target.Reply(GetMessage("GradientChanged", target, GetCorrectLang(isGroup, isMessage, key), gradientName));
-
-            return;
-        }
             if (colLower == "reset" || colLower == "clear" || colLower == "remove")
             {
                 if (isMessage)
@@ -699,17 +786,12 @@ namespace Oxide.Plugins
             }
             public string GetChatOutput()
             {
-                // Use the name as-is if:
-                // 1) Color is empty (i.e., "no solid color override"), OR
-                // 2) Name already contains color tags (e.g., gradient).
                 var nameOut = Name;
-
                 if (!string.IsNullOrEmpty(Color) &&
                     Name.IndexOf("<color=", StringComparison.OrdinalIgnoreCase) < 0)
                 {
                     nameOut = $"<color={Color}>{Name}</color>";
                 }
-
                 return string.Format(ChatFormat, nameOut, Message);
             }
         }
