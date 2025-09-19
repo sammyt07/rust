@@ -313,7 +313,12 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                if (colors.Length < 2) return;
+                if (colors.Length < 2)
+                {
+                    // Tell the player how to use it
+                    player.Reply(GetMessage("IncorrectGradientUsage", player, cmd));
+                    return;
+                }
 
                 string gradientName = ProcessGradient(isMessage ? "Example Message" : target.Name, colors, isMessage, player);
                 if (gradientName.Equals(string.Empty)) return;
