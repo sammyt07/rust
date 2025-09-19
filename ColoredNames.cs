@@ -305,42 +305,61 @@ namespace Oxide.Plugins
             if (!isGroup && !allColorData.ContainsKey(target.Id)) allColorData.Add(target.Id, new PlayerData());
             else if (isGroup && !allColorData.ContainsKey(groupName)) allColorData.Add(groupName, new PlayerData(true));
 
-            if (colLower == "gradient")
+        if (colLower == "gradient")
+        {
+            if ((!isMessage && !CanNameGradient(player)))
             {
-                if ((!isMessage && !CanNameGradient(player)))
-                {
-                    player.Reply(GetMessage("NoPermissionGradient", player, isMessage ? "message" : "name"));
-                    return;
-                }
-
-                if (colors.Length < 2)
-                {
-                    // Tell the player how to use it
-                    player.Reply(GetMessage("IncorrectGradientUsage", player, cmd));
-                    return;
-                }
-
-                string gradientName = ProcessGradient(isMessage ? "Example Message" : target.Name, colors, isMessage, player);
-                if (gradientName.Equals(string.Empty)) return;
-
-                if (isMessage)
-                {
-                    // Do nothing
-                }
-                else
-                {
-                    allColorData[key].NameColor = string.Empty;
-                    allColorData[key].NameGradientArgs = colors;
-                    if (!isGroup)
-                    {
-                        if (!cachedData.ContainsKey(key)) cachedData.Add(key, new CachePlayerData(gradientName, GetPrimaryUserGroup(player.Id)));
-                        else cachedData[key].NameColorGradient = gradientName;
-                    }
-                }
-                if (isGroup) ClearCache();
-                if (target.IsConnected) target.Reply(GetMessage("GradientChanged", target, GetCorrectLang(isGroup, isMessage, key), gradientName));
+                player.Reply(GetMessage("NoPermissionGradient", player, isMessage ? "message" : "name"));
                 return;
             }
+
+            // colors == args after the word "gradient"
+            if (colors.Length < 2)
+            {
+                // Tell them how to use it (uses your localization)
+                player.Reply(GetMessage("IncorrectGradientUsage", player, _configuration.NameColorCommands));
+                // Or: player.Reply(GetMessage("IncorrectGradientUsageArgs", player));
+                return;
+            }
+
+            // Validate hex inputs
+            foreach (var c in colors)
+            {
+                if (!IsValidColor(c))
+                {
+                    player.Reply(GetMessage("IncorrectGradientUsageArgs", player));
+                    return;
+                }
+            }
+
+            string gradientName = ProcessGradient(isMessage ? "Example Message" : target.Name, colors, isMessage, player);
+            if (string.IsNullOrEmpty(gradientName))
+            {
+                player.Reply(GetMessage("IncorrectGradientUsageArgs", player));
+                return;
+            }
+
+            if (!isMessage)
+            {
+                allColorData[key].NameColor = string.Empty;
+                allColorData[key].NameGradientArgs = colors;
+
+                if (!isGroup)
+                {
+                    if (!cachedData.ContainsKey(key))
+                        cachedData.Add(key, new CachePlayerData(gradientName, GetPrimaryUserGroup(player.Id)));
+                    else
+                        cachedData[key].NameColorGradient = gradientName;
+                }
+            }
+
+            if (isGroup) ClearCache();
+
+            if (target.IsConnected)
+                target.Reply(GetMessage("GradientChanged", target, GetCorrectLang(isGroup, isMessage, key), gradientName));
+
+            return;
+        }
             if (colLower == "reset" || colLower == "clear" || colLower == "remove")
             {
                 if (isMessage)
