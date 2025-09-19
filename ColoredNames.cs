@@ -478,13 +478,23 @@ namespace Oxide.Plugins
         }
         private void ProcessColorCommand(IPlayer player, string cmd, string[] args, bool isMessage = false)
         {
-            if (args == null || args.Length < 1) return;
-
-            string colLower;
-
-            if (args[0].Equals("set", StringComparison.OrdinalIgnoreCase))
+            // 0) show usage if no args
+            if (args == null || args.Length == 0)
             {
-                if (args.Length < 3) { player.Reply(GetMessage("IncorrectSetUsage", player, cmd)); return; }
+                player.Reply(GetMessage("IncorrectUsage", player, _configuration.NameColorCommands, _configuration.NameColorsCommandH));
+                return;
+            }
+
+            string first = args[0];
+
+            // 1) admin: set <player> <color...>
+            if (first.Equals("set", StringComparison.OrdinalIgnoreCase))
+            {
+                if (args.Length < 3)
+                {
+                    player.Reply(GetMessage("IncorrectSetUsage", player, cmd));
+                    return;
+                }
 
                 var target = covalence.Players.FindPlayer(args[1]);
                 if (target == null)
@@ -493,10 +503,21 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                colLower = args[2].ToLowerInvariant();
-                ProcessColor(player, target, colLower, args.Skip(3).ToArray(), isMessage);
+                // join everything after player name so multi-word colors work
+                var candidate = string.Join(" ", args.Skip(2).ToArray());
+                string resolvedHex;
+                if (!TryResolveFancyColorToHex(candidate, out resolvedHex))
+                {
+                    player.Reply(GetMessage("IncorrectSetUsage", player, cmd));
+                    return;
+                }
+
+                ProcessColor(player, target, resolvedHex.ToLowerInvariant(), new string[0], isMessage);
+                return;
             }
-            else if (args[0].Equals("group", StringComparison.OrdinalIgnoreCase))
+
+            // 2) admin: group <groupName> <color...>
+            if (first.Equals("group", StringComparison.OrdinalIgnoreCase))
             {
                 if (!player.IsAdmin) { player.Reply(GetMessage("NoPermission", player)); return; }
                 if (args.Length < 3) { player.Reply(GetMessage("IncorrectGroupUsage", player, cmd)); return; }
@@ -505,37 +526,50 @@ namespace Oxide.Plugins
                 if (!permission.GroupExists(group))
                     permission.CreateGroup(group, string.Empty, 0);
 
-                colLower = args[2].ToLowerInvariant();
-                ProcessColor(player, player, colLower, args.Skip(3).ToArray(), isMessage, group);
+                var candidate = string.Join(" ", args.Skip(2).ToArray());
+                string resolvedHex;
+                if (!TryResolveFancyColorToHex(candidate, out resolvedHex))
+                {
+                    player.Reply(GetMessage("IncorrectGroupUsage", player, cmd));
+                    return;
+                }
+
+                ProcessColor(player, player, resolvedHex.ToLowerInvariant(), new string[0], isMessage, group);
+                return;
             }
-            else
+
+            // 3) gradient keyword (your normalized gradient block should live inside ProcessColor)
+            if (first.Equals("gradient", StringComparison.OrdinalIgnoreCase))
             {
-                if (!isMessage && !HasNamePerm(player)) return;
-
-                // Treat the whole tail as one color string unless it's a special subcommand
-                var first = args[0];
-                var specials = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { "gradient","random","rainbow","reset","clear","remove","set","group" };
-
-                if (specials.Contains(first))
-                {
-                    var colLower = first.ToLowerInvariant();
-                    ProcessColor(player, player, colLower, args.Skip(1).ToArray(), isMessage);
-                }
-                else
-                {
-                    var candidate = string.Join(" ", args);
-                    string resolvedHex;
-                    if (!TryResolveFancyColorToHex(candidate, out resolvedHex))
-                    {
-                        player.Reply(GetMessage("IncorrectUsage", player, _configuration.NameColorCommands, _configuration.NameColorsCommandH));
-                        return;
-                    }
-                    ProcessColor(player, player, resolvedHex.ToLowerInvariant(), new string[0], isMessage);
-                }
+                // pass the raw stops; the inside of the gradient branch should normalize each with TryResolveFancyColorToHex
+                ProcessColor(player, player, "gradient", args.Skip(1).ToArray(), isMessage);
+                return;
             }
-        }
 
+            // 4) passthrough keywords
+            if (first.Equals("random", StringComparison.OrdinalIgnoreCase) ||
+                first.Equals("rainbow", StringComparison.OrdinalIgnoreCase) ||
+                first.Equals("reset", StringComparison.OrdinalIgnoreCase) ||
+                first.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
+                first.Equals("remove", StringComparison.OrdinalIgnoreCase))
+            {
+                ProcessColor(player, player, first.ToLowerInvariant(), args.Skip(1).ToArray(), isMessage);
+                return;
+            }
+
+            // 5) simple color: join all tokens (allows "/color pastel pink")
+            if (!isMessage && !HasNamePerm(player)) return;
+
+            var simpleCandidate = string.Join(" ", args);
+            string simpleHex;
+            if (!TryResolveFancyColorToHex(simpleCandidate, out simpleHex))
+            {
+                player.Reply(GetMessage("IncorrectUsage", player, _configuration.NameColorCommands, _configuration.NameColorsCommandH));
+                return;
+            }
+
+            ProcessColor(player, player, simpleHex.ToLowerInvariant(), new string[0], isMessage);
+        }
         private void ProcessColor(IPlayer player, IPlayer target, string colLower, string[] colors, bool isMessage = false, string groupName = "")
         {
             var isGroup = !string.IsNullOrEmpty(groupName);
