@@ -247,7 +247,7 @@ namespace Oxide.Plugins
         // Name
         private bool HasNameShowPerm(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermShow));
         private bool HasNamePerm(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermUse));
-        private bool HasNameRainbow(IPlayer player) => (true || permission.UserHasPermission(player.Id, _configuration.NamePermRainbow));
+        private bool HasNameRainbow(IPlayer player) => true;
         private bool CanNameGradient(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermGradient));
         private bool CanNameBypass(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermBypass));
         private bool CanNameRandomColor(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermRandomColor));
