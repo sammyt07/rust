@@ -218,29 +218,103 @@ namespace Oxide.Plugins
         #region Helpers
         private static readonly Dictionary<string, string> NamedHex = new(StringComparer.OrdinalIgnoreCase)
         {
-            // Core web color names
-            ["black"] = "#000000",
-            ["white"] = "#FFFFFF",
-            ["red"]   = "#FF0000",
-            ["green"] = "#008000",
-            ["blue"]  = "#0000FF",
-            ["yellow"]= "#FFFF00",
-            ["magenta"] = "#FF00FF",
-            ["fuchsia"] = "#FF00FF",
-            ["cyan"]  = "#00FFFF",
-            ["aqua"]  = "#00FFFF",
-            ["orange"]= "#FFA500",
-            ["purple"]= "#800080",
-            ["gray"]  = "#808080",
-            ["grey"]  = "#808080",
-            ["silver"]= "#C0C0C0",
-            ["maroon"]= "#800000",
-            ["olive"] = "#808000",
-            ["teal"]  = "#008080",
-            ["navy"]  = "#000080",
-            // Add any others you want to support
+            // Core set
+            ["black"]="#000000", ["white"]="#FFFFFF", ["red"]="#FF0000", ["green"]="#008000",
+            ["blue"]="#0000FF",  ["yellow"]="#FFFF00",["magenta"]="#FF00FF",["fuchsia"]="#FF00FF",
+            ["cyan"]="#00FFFF",  ["aqua"]="#00FFFF",  ["orange"]="#FFA500", ["purple"]="#800080",
+            ["gray"]="#808080",  ["grey"]="#808080",  ["silver"]="#C0C0C0", ["maroon"]="#800000",
+            ["olive"]="#808000", ["teal"]="#008080",  ["navy"]="#000080",
+            ["pink"]="#FFC0CB",  ["lightpink"]="#FFB6C1",
+
+            // Handy aliases
+            ["pastelpink"]="#FFD1DC", // choose your favorite pastel
         };
 
+        private static string CanonKey(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            var sb = new StringBuilder(s.Length);
+            foreach (var ch in s)
+                if (char.IsLetterOrDigit(ch)) sb.Append(char.ToLowerInvariant(ch));
+            return sb.ToString();
+        }
+
+        private static bool TryNormalizeHex(string input, out string hex)
+        {
+            hex = null;
+            if (string.IsNullOrWhiteSpace(input)) return false;
+            input = input.Trim();
+
+            if (!input.StartsWith("#")) return false;
+            if (!Regex.IsMatch(input, ColorRegex)) return false;
+
+            // expand #RGB/#RGBA to #RRGGBB/#RRGGBBAA
+            if (input.Length == 4 || input.Length == 5)
+            {
+                var sb = new StringBuilder("#");
+                for (int i = 1; i < input.Length; i++) { var c = input[i]; sb.Append(c).Append(c); }
+                input = sb.ToString();
+            }
+
+            hex = input.ToUpperInvariant();
+            return true;
+        }
+
+        private static bool TryResolveFancyColorToHex(string input, out string hex)
+        {
+            hex = null;
+            if (string.IsNullOrWhiteSpace(input)) return false;
+            input = input.Trim();
+
+            // 1) Hex already?
+            if (TryNormalizeHex(input, out hex)) return true;
+
+            // 2) Direct named color or alias (handles spaces/dashes/underscores)
+            var key = CanonKey(input);
+            if (NamedHex.TryGetValue(key, out var mapped))
+            {
+                hex = mapped.ToUpperInvariant();
+                return true;
+            }
+
+            // 3) Adjective parsing: e.g., "pastel pink", "light deep blue"
+            var tokens = input.ToLowerInvariant()
+                .Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+
+            // Find a base color token from right to left
+            string baseHex = null;
+            for (int i = tokens.Length - 1; i >= 0; i--)
+            {
+                var k = CanonKey(tokens[i]);
+                if (NamedHex.TryGetValue(k, out var h))
+                {
+                    baseHex = h;
+                    break;
+                }
+            }
+            if (baseHex == null) return false;
+
+            ColorUtility.TryParseHtmlString(baseHex, out var baseCol);
+            Color.RGBToHSV(baseCol, out float h0, out float s0, out float v0);
+
+            foreach (var t in tokens)
+            {
+                switch (t)
+                {
+                    case "pastel": s0 *= 0.4f; v0 = Mathf.Clamp01(v0 + 0.20f); break;
+                    case "light":  v0 = Mathf.Clamp01(v0 + 0.20f); s0 *= 0.90f; break;
+                    case "dark":   v0 = Mathf.Clamp01(v0 - 0.25f); break;
+                    case "pale":   s0 *= 0.50f; v0 = Mathf.Clamp01(v0 + 0.10f); break;
+                    case "neon":   s0 = Mathf.Clamp01(Mathf.Max(s0, 0.85f)); v0 = Mathf.Clamp01(Mathf.Max(v0, 0.95f)); break;
+                    case "deep":   s0 = Mathf.Clamp01(s0 * 1.10f); v0 = Mathf.Clamp01(v0 * 0.80f); break;
+                    case "bright": v0 = 1f; break;
+                }
+            }
+
+            var finalCol = Color.HSVToRGB(h0, Mathf.Clamp01(s0), Mathf.Clamp01(v0));
+            hex = "#" + ColorUtility.ToHtmlStringRGB(finalCol);
+            return true;
+        }
         private static bool TryNormalizeHex(string input, out string hex)
         {
             hex = null;
@@ -364,28 +438,32 @@ namespace Oxide.Plugins
             else
             {
                 if (!isMessage && !HasNamePerm(player)) return;
-                var raw = args[0]; // keep original
-                if (!raw.Equals("gradient", StringComparison.OrdinalIgnoreCase) &&
-                    !raw.Equals("random", StringComparison.OrdinalIgnoreCase) &&
-                    !raw.Equals("rainbow", StringComparison.OrdinalIgnoreCase) &&
-                    !raw.Equals("reset", StringComparison.OrdinalIgnoreCase) &&
-                    !raw.Equals("clear", StringComparison.OrdinalIgnoreCase) &&
-                    !raw.Equals("remove", StringComparison.OrdinalIgnoreCase))
+
+                // If it's a simple color (not special command), join all tokens
+                var candidate = string.Join(" ", args);
+
+                // If first token is a special keyword, keep existing path
+                var first = args[0];
+                var special = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { "gradient","random","rainbow","reset","clear","remove","set","group" };
+
+                if (!special.Contains(first))
                 {
-                    if (!TryResolveColorToHex(raw, out var resolvedHex))
+                    if (!TryResolveFancyColorToHex(candidate, out var resolvedHex))
                     {
                         player.Reply(GetMessage("IncorrectUsage", player, _configuration.NameColorCommands, _configuration.NameColorsCommandH));
                         return;
                     }
-                    // store hex only
+
+                    // Store canonical hex
                     ProcessColor(player, player, resolvedHex.ToLowerInvariant(), Array.Empty<string>(), isMessage);
                 }
                 else
                 {
-                    // keep existing handling for special keywords
-                    ProcessColor(player, player, raw.ToLowerInvariant(), args.Skip(1).ToArray(), isMessage);
+                    // existing behavior (e.g., gradient)
+                    var colLower = first.ToLowerInvariant();
+                    ProcessColor(player, player, colLower, args.Skip(1).ToArray(), isMessage);
                 }
-
             }
         }
 
