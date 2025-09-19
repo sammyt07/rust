@@ -60,7 +60,7 @@ namespace Oxide.Plugins
         {
             // General
             [JsonProperty(PropertyName = "Rainbow colors")]
-            public string[] RainbowColors = { "#ff0000", "#ffa500", "#ffff94", "#008000", "#0000ff", "#4b0082", "#ee82ee" };
+            public string[] RainbowColors = { "#ff0000", "#ff00b3ff", "#f700ffff", "#5500ffff", "#00fff7ff", "#00ff5eff", "#fffb00ff" };
 
             // Name
             [JsonProperty(PropertyName = "Name color commands", ObjectCreationHandling = ObjectCreationHandling.Replace)]
@@ -247,7 +247,7 @@ namespace Oxide.Plugins
         // Name
         private bool HasNameShowPerm(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermShow));
         private bool HasNamePerm(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermUse));
-        private bool HasNameRainbow(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermRainbow));
+        private bool HasNameRainbow(IPlayer player) => (true || permission.UserHasPermission(player.Id, _configuration.NamePermRainbow));
         private bool CanNameGradient(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermGradient));
         private bool CanNameBypass(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermBypass));
         private bool CanNameRandomColor(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermRandomColor));
