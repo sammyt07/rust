@@ -216,19 +216,92 @@ namespace Oxide.Plugins
         #endregion
 
         #region Helpers
-        private static readonly Dictionary<string, string> NamedHex = new(StringComparer.OrdinalIgnoreCase)
+        private static Dictionary<string, string> NamedHex = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            // Core set
-            ["black"]="#000000", ["white"]="#FFFFFF", ["red"]="#FF0000", ["green"]="#008000",
-            ["blue"]="#0000FF",  ["yellow"]="#FFFF00",["magenta"]="#FF00FF",["fuchsia"]="#FF00FF",
-            ["cyan"]="#00FFFF",  ["aqua"]="#00FFFF",  ["orange"]="#FFA500", ["purple"]="#800080",
-            ["gray"]="#808080",  ["grey"]="#808080",  ["silver"]="#C0C0C0", ["maroon"]="#800000",
-            ["olive"]="#808000", ["teal"]="#008080",  ["navy"]="#000080",
-            ["pink"]="#FFC0CB",  ["lightpink"]="#FFB6C1",
-
-            // Handy aliases
-            ["pastelpink"]="#FFD1DC", // choose your favorite pastel
+            { "black","#000000" }, { "white","#FFFFFF" }, { "red","#FF0000" }, { "green","#008000" },
+            { "blue","#0000FF" },  { "yellow","#FFFF00"}, { "magenta","#FF00FF" }, { "fuchsia","#FF00FF" },
+            { "cyan","#00FFFF" },  { "aqua","#00FFFF" },  { "orange","#FFA500" }, { "purple","#800080" },
+            { "gray","#808080" },  { "grey","#808080" },  { "silver","#C0C0C0" }, { "maroon","#800000" },
+            { "olive","#808000" }, { "teal","#008080" },  { "navy","#000080" },
+            { "pink","#FFC0CB" },  { "lightpink","#FFB6C1" },
+            { "pastelpink","#FFD1DC" } // alias for convenience
         };
+
+        private static string CanonKey(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new StringBuilder(s.Length);
+            for (int i = 0; i < s.Length; i++)
+            {
+                char ch = s[i];
+                if (char.IsLetterOrDigit(ch)) sb.Append(char.ToLowerInvariant(ch));
+            }
+            return sb.ToString();
+        }
+
+        private static bool TryNormalizeHex(string input, out string hex)
+        {
+            hex = null;
+            if (string.IsNullOrEmpty(input)) return false;
+            input = input.Trim();
+            if (!input.StartsWith("#")) return false;
+            if (!Regex.IsMatch(input, ColorRegex)) return false;
+
+            // Expand #RGB/#RGBA
+            if (input.Length == 4 || input.Length == 5)
+            {
+                var sb = new StringBuilder("#");
+                for (int i = 1; i < input.Length; i++)
+                {
+                    char c = input[i];
+                    sb.Append(c).Append(c);
+                }
+                input = sb.ToString();
+            }
+            hex = input.ToUpperInvariant();
+            return true;
+        }
+
+        private static Color Lerp(Color a, Color b, float t)
+        {
+            return new Color(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t);
+        }
+
+        // Accepts hex, simple names, and adjectives like "pastel", "light", "dark": e.g. "pastel pink"
+        private static bool TryResolveFancyColorToHex(string input, out string hex)
+        {
+            hex = null;
+            if (string.IsNullOrEmpty(input)) return false;
+            input = input.Trim();
+
+            // 1) already hex?
+            if (TryNormalizeHex(input, out hex)) return true;
+
+            // 2) direct name
+            string key = CanonKey(input);
+            string map;
+            if (NamedHex.TryGetValue(key, out map))
+            {
+                hex = map.ToUpperInvariant();
+                return true;
+            }
+
+            // 3) adjective + base name (e.g., "pastel pink")
+            string[] tokens = input.ToLowerInvariant().Split(new char[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+            int i;
+            string baseHex = null;
+            for (i = tokens.Length - 1; i >= 0; i--)
+            {
+                string k = CanonKey(tokens[i]);
+                if (NamedHex.TryGetValue(k, out map)) { baseHex = map; break; }
+            }
+            if (baseHex == null) return false;
+
+            Color baseCol;
+            if (!ColorUtility.TryParseHtmlString(baseHex, out baseCol)) return false;
+
+            // Apply adjectives by blending in RGB (keeps us Mono/C#6 fri
+
 
         private static string CanonKey(string s)
         {
@@ -439,30 +512,26 @@ namespace Oxide.Plugins
             {
                 if (!isMessage && !HasNamePerm(player)) return;
 
-                // If it's a simple color (not special command), join all tokens
-                var candidate = string.Join(" ", args);
-
-                // If first token is a special keyword, keep existing path
+                // Treat the whole tail as one color string unless it's a special subcommand
                 var first = args[0];
-                var special = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                var specials = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { "gradient","random","rainbow","reset","clear","remove","set","group" };
 
-                if (!special.Contains(first))
+                if (specials.Contains(first))
                 {
-                    if (!TryResolveFancyColorToHex(candidate, out var resolvedHex))
+                    var colLower = first.ToLowerInvariant();
+                    ProcessColor(player, player, colLower, args.Skip(1).ToArray(), isMessage);
+                }
+                else
+                {
+                    var candidate = string.Join(" ", args);
+                    string resolvedHex;
+                    if (!TryResolveFancyColorToHex(candidate, out resolvedHex))
                     {
                         player.Reply(GetMessage("IncorrectUsage", player, _configuration.NameColorCommands, _configuration.NameColorsCommandH));
                         return;
                     }
-
-                    // Store canonical hex
-                    ProcessColor(player, player, resolvedHex.ToLowerInvariant(), Array.Empty<string>(), isMessage);
-                }
-                else
-                {
-                    // existing behavior (e.g., gradient)
-                    var colLower = first.ToLowerInvariant();
-                    ProcessColor(player, player, colLower, args.Skip(1).ToArray(), isMessage);
+                    ProcessColor(player, player, resolvedHex.ToLowerInvariant(), new string[0], isMessage);
                 }
             }
         }
@@ -478,23 +547,26 @@ namespace Oxide.Plugins
 
             if (colLower == "gradient")
             {
-                if ((!isMessage && !CanNameGradient(player)))
+                // permission check
+                if (!isMessage && !CanNameGradient(player))
                 {
                     player.Reply(GetMessage("NoPermissionGradient", player, isMessage ? "message" : "name"));
                     return;
                 }
 
-                if (colors.Length < 2)
+                // need at least two color stops
+                if (colors == null || colors.Length < 2)
                 {
                     player.Reply(GetMessage("IncorrectGradientUsage", player, _configuration.NameColorCommands));
                     return;
                 }
 
-                // Normalize every arg to hex
+                // normalize every stop: accepts hex, named colors, and things like "pastel pink"
                 var normalized = new List<string>(colors.Length);
-                foreach (var c in colors)
+                for (int i = 0; i < colors.Length; i++)
                 {
-                    if (!TryResolveColorToHex(c, out var hx))
+                    string hx;
+                    if (!TryResolveFancyColorToHex(colors[i], out hx))
                     {
                         player.Reply(GetMessage("IncorrectGradientUsageArgs", player));
                         return;
@@ -511,18 +583,24 @@ namespace Oxide.Plugins
 
                 if (!isMessage)
                 {
+                    // store normalized hex stops (lowercased for consistency)
                     allColorData[key].NameColor = string.Empty;
                     allColorData[key].NameGradientArgs = normalized.Select(s => s.ToLowerInvariant()).ToArray();
+
                     if (!isGroup)
                     {
-                        if (!cachedData.ContainsKey(key)) cachedData.Add(key, new CachePlayerData(gradientName, GetPrimaryUserGroup(player.Id)));
-                        else cachedData[key].NameColorGradient = gradientName;
+                        if (!cachedData.ContainsKey(key))
+                            cachedData.Add(key, new CachePlayerData(gradientName, GetPrimaryUserGroup(player.Id)));
+                        else
+                            cachedData[key].NameColorGradient = gradientName;
                     }
                 }
 
                 if (isGroup) ClearCache();
+
                 if (target.IsConnected)
                     target.Reply(GetMessage("GradientChanged", target, GetCorrectLang(isGroup, isMessage, key), gradientName));
+
                 return;
             }
             if (colLower == "reset" || colLower == "clear" || colLower == "remove")
