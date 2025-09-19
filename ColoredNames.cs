@@ -675,7 +675,18 @@ namespace Oxide.Plugins
             }
             public string GetChatOutput()
             {
-                return string.Format(ChatFormat, $"<color={Color}>{Name}</color>", Message);
+                // Use the name as-is if:
+                // 1) Color is empty (i.e., "no solid color override"), OR
+                // 2) Name already contains color tags (e.g., gradient).
+                var nameOut = Name;
+
+                if (!string.IsNullOrEmpty(Color) &&
+                    Name.IndexOf("<color=", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    nameOut = $"<color={Color}>{Name}</color>";
+                }
+
+                return string.Format(ChatFormat, nameOut, Message);
             }
         }
         #endregion
