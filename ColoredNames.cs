@@ -245,12 +245,12 @@ namespace Oxide.Plugins
         private bool IsValidColor(string input) => Regex.Match(input, ColorRegex).Success;
 
         // Name
-        private bool HasNameShowPerm(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermShow));
-        private bool HasNamePerm(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermUse));
+        private bool HasNameShowPerm(IPlayer player) => true;
+        private bool HasNamePerm(IPlayer player) => true;
         private bool HasNameRainbow(IPlayer player) => true;
-        private bool CanNameGradient(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermGradient));
-        private bool CanNameBypass(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermBypass));
-        private bool CanNameRandomColor(IPlayer player) => (player.IsAdmin || permission.UserHasPermission(player.Id, _configuration.NamePermRandomColor));
+        private bool CanNameGradient(IPlayer player) => true;
+        private bool CanNameBypass(IPlayer player) => true;
+        private bool CanNameRandomColor(IPlayer player) => true;
         private string GetMessage(string key, IPlayer player = null, params object[] args)
         {
             var msg = lang.GetMessage(key, this, player?.Id);
